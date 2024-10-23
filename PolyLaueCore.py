@@ -30,7 +30,7 @@ StructureType='' # Defines reflection conditions, if any
 
 def save_shift(n):
     a=np.loadtxt('abc', dtype=np.float64)
-    ar=np.loadtxt('abcr', dtype=np.float64)
+    ar=np.load('abc_matrix.npy')
     sh_tab=np.load('ang_shifts.npy')
     a1=ar[6:9]/np.sqrt(np.sum(np.square(ar[6:9])))
     a2=np.cross(ar[3:6], ar[6:9])
@@ -57,7 +57,7 @@ def shifts_table(n):
     np.save('ang_shifts.npy', sh_tab)
 
 
-def track(res_lim=0):
+def track(res_lim=0.5, ang_lim=29, ang_tol=0.15):
     import math
     global EnergyHighest, EnergyLowest, StructureType, ImageSizeX, ImageSizeY
     with np.load('geosetup.npz') as geo_arr:
@@ -105,6 +105,8 @@ def track(res_lim=0):
     l=np.hstack((l0,l0,l1))
     hkl=np.expand_dims((np.expand_dims(h, axis=1)+k), axis=2)+l
     hkl=np.reshape(hkl, (((max_h*np.int64(2)+np.int64(1))*(max_k*np.int64(2)+np.int64(1))*(max_l*np.int64(2)+np.int64(1))), 3))
+    vec_sel=np.sum(np.absolute(hkl), axis=1) != 0
+    hkl=hkl[vec_sel,:]
     print('Total number of indices:', np.shape(hkl)[0])
     ind_tot=float(np.shape(hkl)[0])
     vec_sel=(np.gcd.reduce(hkl, axis=1)==1)
@@ -122,6 +124,89 @@ def track(res_lim=0):
     print(' ')
     print('... n=1')
     print('Sets of crystallographic planes with d >', round(d_min, 4), 'Angstroms:', np.shape(hkl)[0])
+    obs_xy=np.loadtxt('refinement.xy', dtype=np.float64)
+    dt=[]
+    for i in obs_xy:
+        dt.append(float(pix_dist[1]))
+    obs_vec=np.hstack((((obs_xy-det_org)*pix_dist[0]), np.expand_dims(np.array(dt, dtype=np.float64), axis=1)))
+    obs_vec=obs_vec/np.expand_dims(np.sqrt(np.sum(np.square(obs_vec), axis=1)), axis=1)
+    obs_vec=obs_vec-beam_dir
+    obs_vec=obs_vec/np.expand_dims(np.sqrt(np.sum(np.square(obs_vec), axis=1)), axis=1)
+    print(' ')
+    print('... Observed reflections:', np.shape(obs_vec)[0])
+    s1=np.shape(hkl)[0]
+    s2=np.shape(obs_vec)[0]
+    t1=np.zeros((s1, 3), dtype=np.float64)
+    t2=np.zeros((s2, 3), dtype=np.float64)
+    obs_vec=np.expand_dims(obs_vec, axis=1)+t1
+    obs_vec=np.reshape(obs_vec, ((s1*s2), 3))
+    hkl_vec=np.expand_dims(t2, axis=1)+hkl_vec
+    hkl_vec=np.reshape(hkl_vec, ((s1*s2), 3))
+    vec_sel=np.nonzero(np.sum((obs_vec*hkl_vec), axis=1) > np.cos(np.radians(np.float64(ang_lim))))
+    hkl_vec=hkl_vec[vec_sel[0],:]    
+    obs_vec=obs_vec[vec_sel[0],:]
+    print('Possible indices in total:', np.shape(hkl_vec)[0])
+    n_foun=0
+    s1=int(np.shape(hkl_vec)[0])
+    for i in range(s1):
+        for j in range((i+1),s1):
+            hkl_pri=hkl_vec[np.int64(i),:]
+            hkl_sec=hkl_vec[np.int64(j),:]
+            obs_pri=obs_vec[np.int64(i),:]
+            obs_sec=obs_vec[np.int64(j),:]
+            t1=np.sum(hkl_pri*hkl_sec)
+            t2=np.sum(obs_pri*obs_sec)
+            if float(np.absolute(t1)) < math.cos(float(20.0)*math.pi/float(180.0)):
+                if float(np.absolute(t2)) < math.cos(float(20.0)*math.pi/float(180.0)):
+                    t1=np.degrees(np.arccos(t1))
+                    t2=np.degrees(np.arccos(t2))
+                    if float(np.absolute(t1-t2)) < float(1.0):
+                        hkl_axi1=hkl_pri
+                        obs_axi1=obs_pri
+                        hkl_axi2=np.cross(hkl_axi1, hkl_sec)
+                        hkl_axi2=hkl_axi2/np.sqrt(np.sum(np.square(hkl_axi2)))
+                        obs_axi2=np.cross(obs_axi1, obs_sec)
+                        obs_axi2=obs_axi2/np.sqrt(np.sum(np.square(obs_axi2)))
+                        hkl_axi3=np.cross(hkl_axi1, hkl_axi2)
+                        obs_axi3=np.cross(obs_axi1, obs_axi2)
+                        hkl_mat=np.hstack((np.expand_dims(hkl_axi1, axis=1), np.expand_dims(hkl_axi2, axis=1), np.expand_dims(hkl_axi3, axis=1)))
+                        obs_mat=np.hstack((np.expand_dims(obs_axi1, axis=1), np.expand_dims(obs_axi2, axis=1), np.expand_dims(obs_axi3, axis=1)))
+                        hkl_com=hkl_vec @ hkl_mat
+                        obs_com=obs_vec @ obs_mat
+                        vec_sel=(np.sum((hkl_com*obs_com), axis=1) > np.cos(np.radians(np.float64(ang_tol))))
+                        obs_fou=obs_vec[vec_sel,:]
+                        if n_foun < int(np.shape(obs_fou)[0]):
+                            n_foun=int(np.shape(obs_fou)[0])
+                            hkl_mat_m=hkl_mat
+                            obs_mat_m=obs_mat
+    print('Indexed reflections:', n_foun)
+    abc_dir_m=abc_dir @ hkl_mat_m
+    abc_dir_m=abc_dir_m @ obs_mat_m.T
+    mm=np.int64(10)
+    h1=np.expand_dims(np.arange(-mm, (mm+1), dtype=np.int64), axis=1)
+    k1=np.expand_dims(np.arange(-mm, (mm+1), dtype=np.int64), axis=1)
+    l1=np.expand_dims(np.arange(-mm, (mm+1), dtype=np.int64), axis=1)
+    h0=np.expand_dims(np.zeros((mm*np.int64(2)+np.int64(1)), dtype=np.int64), axis=1)
+    k0=np.expand_dims(np.zeros((mm*np.int64(2)+np.int64(1)), dtype=np.int64), axis=1)
+    l0=np.expand_dims(np.zeros((mm*np.int64(2)+np.int64(1)), dtype=np.int64), axis=1)
+    h=np.hstack((h1,h0,h0))
+    k=np.hstack((k0,k1,k0))
+    l=np.hstack((l0,l0,l1))
+    hkl=np.expand_dims((np.expand_dims(h, axis=1)+k), axis=2)+l
+    hkl=np.reshape(hkl, (((mm*np.int64(2)+np.int64(1))*(mm*np.int64(2)+np.int64(1))*(mm*np.int64(2)+np.int64(1))), 3))
+    vec_sel=np.sum(np.absolute(hkl), axis=1) != 0
+    hkl=hkl[vec_sel,:]
+    hkl_vec1=hkl.astype(np.float64)
+    hkl_vec1=hkl_vec1 @ abc_dir
+    hkl_vec1=hkl_vec1/np.expand_dims(np.sqrt(np.sum(np.square(hkl_vec1), axis=1)), axis=1)
+    hkl_vec2=hkl.astype(np.float64)
+    hkl_vec2=hkl_vec2 @ abc_dir_m
+    hkl_vec2=hkl_vec2/np.expand_dims(np.sqrt(np.sum(np.square(hkl_vec2), axis=1)), axis=1)
+    ang=float(np.min(np.sum((hkl_vec1*hkl_vec2), axis=1)))
+    ang=math.acos(ang)*180.0/math.pi
+    print('Angular shift, deg.:', round(ang,2))
+    abc_dir_m=np.reshape(abc_dir_m, 9)
+    np.save('abc_matrix.npy', abc_dir_m)
 
 
 def burn(res_lim=0, nscan=-1):
@@ -133,19 +218,19 @@ def burn(res_lim=0, nscan=-1):
         pix_dist=geo_arr['iitt3']
     if nscan > 1:
         a=np.loadtxt('abc', dtype=np.float64)
+        np.save('abc_matrix.npy', a)
         sh_tab=np.load('ang_shifts.npy')
         if sh_tab[(nscan-2),9] > np.float64(50):
             print('...No angular shift available')
             return
         ten=np.reshape(sh_tab[(nscan-2),0:9], (3,-1))
-    else:
-        a=np.loadtxt('abcr', dtype=np.float64)
-    np.save('abc_matrix.npy', a)
+    elif nscan==1:
+        a=np.loadtxt('abc', dtype=np.float64)
+        np.save('abc_matrix.npy', a)
     abc=np.load('abc_matrix.npy')
     abc_dir=np.reshape(abc, (3,-1))
     if nscan > 1:
         abc_dir=abc_dir @ ten
-        np.savetxt('abcr', np.reshape(abc_dir, 9))
     abc_vol=np.cross(abc_dir[2,:], abc_dir[0,:]) @ abc_dir[1,:]
     abc_rec=np.vstack((np.cross(abc_dir[1,:], abc_dir[2,:]), np.cross(abc_dir[2,:], abc_dir[0,:]), np.cross(abc_dir[0,:], abc_dir[1,:])))/abc_vol
     abc_len=np.sqrt(np.sum(np.square(abc_dir), axis=1))    
@@ -188,6 +273,8 @@ def burn(res_lim=0, nscan=-1):
     hkl=np.expand_dims(k[(max_k+np.int64(1)):(np.int64(2)*max_k+np.int64(1)),:], axis=1)+l[np.int64(0):max_l,:]
     hkl3=np.reshape(hkl, ((max_k*max_l), 3))
     hkl=np.vstack((hkl1,hkl2,hkl3))
+    vec_sel=np.sum(np.absolute(hkl), axis=1) != 0
+    hkl=hkl[vec_sel,:]
     print('Total number of indices:', np.shape(hkl)[0])
     ind_tot=float(np.shape(hkl)[0])
     vec_sel=(np.gcd.reduce(hkl, axis=1)==1)
