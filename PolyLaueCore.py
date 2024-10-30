@@ -23,7 +23,8 @@ WhiteBeamShift=0.01 # Shift of white beam from mono beam
 EnergyHighest=70 # Highest limit of X-ray energy, keV
 EnergyLowest=5 # Lowest limit of X-ray energy, keV
 
-StructureType='' # Defines reflection conditions, if any
+StructureType='hcp' # Defines reflection conditions, if any
+#StructureType='' # Defines reflection conditions, if any
 #StructureType='Diamond' # Defines reflection conditions, if any
 
 
@@ -146,6 +147,20 @@ def track(res_lim=0.5, ang_lim=29, ang_tol=0.15):
     hkl_vec=hkl_vec[vec_sel[0],:]    
     obs_vec=obs_vec[vec_sel[0],:]
     print('Possible indices in total:', np.shape(hkl_vec)[0])
+    mm=np.int64(10)
+    sh1=np.expand_dims(np.arange(-mm, (mm+1), dtype=np.int64), axis=1)
+    sk1=np.expand_dims(np.arange(-mm, (mm+1), dtype=np.int64), axis=1)
+    sl1=np.expand_dims(np.arange(-mm, (mm+1), dtype=np.int64), axis=1)
+    sh0=np.expand_dims(np.zeros((mm*np.int64(2)+np.int64(1)), dtype=np.int64), axis=1)
+    sk0=np.expand_dims(np.zeros((mm*np.int64(2)+np.int64(1)), dtype=np.int64), axis=1)
+    sl0=np.expand_dims(np.zeros((mm*np.int64(2)+np.int64(1)), dtype=np.int64), axis=1)
+    sh=np.hstack((sh1,sh0,sh0))
+    sk=np.hstack((sk0,sk1,sk0))
+    sl=np.hstack((sl0,sl0,sl1))
+    shkl=np.expand_dims((np.expand_dims(sh, axis=1)+sk), axis=2)+sl
+    shkl=np.reshape(shkl, (((mm*np.int64(2)+np.int64(1))*(mm*np.int64(2)+np.int64(1))*(mm*np.int64(2)+np.int64(1))), 3))
+    vec_sel=np.sum(np.absolute(shkl), axis=1) != 0
+    shkl=shkl[vec_sel,:]
     n_foun=0
     s1=int(np.shape(hkl_vec)[0])
     for i in range(s1):
@@ -177,36 +192,23 @@ def track(res_lim=0.5, ang_lim=29, ang_tol=0.15):
                         obs_fou=obs_vec[vec_sel,:]
                         if n_foun < int(np.shape(obs_fou)[0]):
                             n_foun=int(np.shape(obs_fou)[0])
-                            hkl_mat_m=hkl_mat
-                            obs_mat_m=obs_mat
+                            abc_dir_m=abc_dir @ hkl_mat
+                            abc_dir_m=abc_dir_m @ obs_mat.T
+                            shkl_vec1=shkl.astype(np.float64)
+                            shkl_vec1=shkl_vec1 @ abc_dir
+                            shkl_vec1=shkl_vec1/np.expand_dims(np.sqrt(np.sum(np.square(shkl_vec1), axis=1)), axis=1)
+                            shkl_vec2=shkl.astype(np.float64)
+                            shkl_vec2=shkl_vec2 @ abc_dir_m
+                            shkl_vec2=shkl_vec2/np.expand_dims(np.sqrt(np.sum(np.square(shkl_vec2), axis=1)), axis=1)
+                            ang=float(np.min(np.sum((shkl_vec1*shkl_vec2), axis=1)))
+                            ang=math.acos(ang)*180.0/math.pi
+                            if ang < float(ang_lim):
+                                nang=ang
+                                abc_dir_n=abc_dir_m
     print('Indexed reflections:', n_foun)
-    abc_dir_m=abc_dir @ hkl_mat_m
-    abc_dir_m=abc_dir_m @ obs_mat_m.T
-    mm=np.int64(10)
-    h1=np.expand_dims(np.arange(-mm, (mm+1), dtype=np.int64), axis=1)
-    k1=np.expand_dims(np.arange(-mm, (mm+1), dtype=np.int64), axis=1)
-    l1=np.expand_dims(np.arange(-mm, (mm+1), dtype=np.int64), axis=1)
-    h0=np.expand_dims(np.zeros((mm*np.int64(2)+np.int64(1)), dtype=np.int64), axis=1)
-    k0=np.expand_dims(np.zeros((mm*np.int64(2)+np.int64(1)), dtype=np.int64), axis=1)
-    l0=np.expand_dims(np.zeros((mm*np.int64(2)+np.int64(1)), dtype=np.int64), axis=1)
-    h=np.hstack((h1,h0,h0))
-    k=np.hstack((k0,k1,k0))
-    l=np.hstack((l0,l0,l1))
-    hkl=np.expand_dims((np.expand_dims(h, axis=1)+k), axis=2)+l
-    hkl=np.reshape(hkl, (((mm*np.int64(2)+np.int64(1))*(mm*np.int64(2)+np.int64(1))*(mm*np.int64(2)+np.int64(1))), 3))
-    vec_sel=np.sum(np.absolute(hkl), axis=1) != 0
-    hkl=hkl[vec_sel,:]
-    hkl_vec1=hkl.astype(np.float64)
-    hkl_vec1=hkl_vec1 @ abc_dir
-    hkl_vec1=hkl_vec1/np.expand_dims(np.sqrt(np.sum(np.square(hkl_vec1), axis=1)), axis=1)
-    hkl_vec2=hkl.astype(np.float64)
-    hkl_vec2=hkl_vec2 @ abc_dir_m
-    hkl_vec2=hkl_vec2/np.expand_dims(np.sqrt(np.sum(np.square(hkl_vec2), axis=1)), axis=1)
-    ang=float(np.min(np.sum((hkl_vec1*hkl_vec2), axis=1)))
-    ang=math.acos(ang)*180.0/math.pi
-    print('Angular shift, deg.:', round(ang,2))
-    abc_dir_m=np.reshape(abc_dir_m, 9)
-    np.save('abc_matrix.npy', abc_dir_m)
+    print('Angular shift, deg.:', round(nang,2))
+    abc_dir_n=np.reshape(abc_dir_n, 9)
+    np.save('abc_matrix.npy', abc_dir_n)
 
 
 def burn(res_lim=0, nscan=-1):
@@ -409,6 +411,10 @@ def burn(res_lim=0, nscan=-1):
     for i in range(5):
         print((i+1), round((float(sta_mul[i])*100.0/sta_pre_tot),2),'%')
     if StructureType != '':
+        if StructureType == 'hcp':
+            ref_cond1=range(0,(max_l+1),2)
+            ref_cond2=range(1,(max_h+max_k+1),3)
+            ref_cond3=range(2,(max_h+max_k+1),3)
         if StructureType == 'Diamond':
             ref_cond1=range(0,(max_h+max_k+1),2)
             ref_cond2=range(0,(max_h+max_k+1),4)
@@ -426,6 +432,19 @@ def burn(res_lim=0, nscan=-1):
                 h=int(aaa[0])*i
                 k=int(aaa[1])*i
                 l=int(aaa[2])*i
+                if StructureType == 'hcp':
+                    ch_ch=-1
+                    if abs(l) in ref_cond1:
+                        ch_ch=ch_ch+1
+                    elif abs(h-k) in ref_cond2:
+                        ch_ch=ch_ch+1
+                    elif abs(h-k) in ref_cond3:
+                        ch_ch=ch_ch+1
+                    if ch_ch == 0:
+                        if ch_ch_ch == 1:
+                            ch_ch_ch=0
+                            nnn1=i
+                        nnn2=i
                 if StructureType == 'Diamond':
                     ch_ch=-3
                     if abs(h+k) in ref_cond1:
